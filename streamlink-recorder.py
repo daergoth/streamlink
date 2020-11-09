@@ -7,6 +7,8 @@ import requests
 import json
 import os
 
+from telegram import Bot
+from telegram.ext import Updater
 from threading import Timer
 from oauthlib.oauth2 import BackendApplicationClient
 from requests_oauthlib import OAuth2Session
@@ -26,9 +28,14 @@ client_id = ""
 client_secret = ""
 token = ""
 slack_id = ""
+telegram_token = ""
 game_list = ""
 
-# Init variables with some default values
+# post to slack, requires slack client id
+def post_to(message):
+    post_to_slack(message)
+    post_to_telegram(message)
+
 def post_to_slack(message):
     if slack_id is None:
         print("slackid is not specified, so disabling slack notification")
@@ -46,6 +53,20 @@ def post_to_slack(message):
             'Request to slack returned an error %s, the response is:\n%s'
             % (response.status_code, response.text)
         )
+
+# post to slack, requires slack client id
+def post_to_telegram(message):
+    if telegram_token is None:
+        print("telegramtoken is not specified, so disabling telegram notification")
+        pass
+
+    bot = Bot(token=telegram_token)
+    print(bot.get_me())
+
+    updater = Updater(token=telegram_token, use_context=True)
+    dispatcher = updater.dispatcher
+
+    bot.send_message(chat_id="@streamlinkbot", text="I'm a bot, please talk to me!")
 
 # still need to manage token refresh based on expiration
 def get_from_twitch(operation):
@@ -102,11 +123,11 @@ def loopcheck():
         recorded_filename = os.path.join("/download/", filename)
         
         # start streamlink process
-        post_to_slack("recording " + user+" ...")
+        post_to("recording " + user+" ...")
         print(user, "recording ... ")
-        subprocess.call(["streamlink", "--twitch-disable-hosting", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o", recorded_filename])
+        # subprocess.call(["streamlink", "--twitch-disable-hosting", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o", recorded_filename])
         print("Stream is done. Going back to checking.. ")
-        post_to_slack("Stream "+ user +" is done. Going back to checking..")
+        post_to("Stream "+ user +" is done. Going back to checking..")
 
     t = Timer(timer, loopcheck)
     t.start()
@@ -118,6 +139,7 @@ def main():
     global client_id
     global client_secret
     global slack_id
+    global telegram_token
     global game_list
 
     parser = argparse.ArgumentParser()
@@ -127,6 +149,7 @@ def main():
     parser.add_argument("-clientid", help="Your twitch app client id")
     parser.add_argument("-clientsecret", help="Your twitch app client secret")
     parser.add_argument("-slackid", help="Your slack app client id")
+    parser.add_argument("-telegramtoken", help="Your telegram client id")
     parser.add_argument("-gamelist", help="The game list to be recorded")
     args = parser.parse_args()
  
@@ -138,6 +161,8 @@ def main():
         quality = args.quality
     if args.slackid is not None:
         slack_id = args.slackid
+    if args.telegramtoken is not None:
+        telegram_token = args.telegramtoken
     if args.gamelist is not None:
         game_list = args.gamelist
 

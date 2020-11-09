@@ -6,13 +6,16 @@ FROM base as builder
 
 # Install every build dependencies in builder image
 RUN apk add gcc musl-dev --no-cache
+RUN apk add libffi-dev openssl-dev --no-cache
+
 RUN mkdir /install
 WORKDIR /install
-RUN /usr/local/bin/python -m pip install --upgrade pip
+RUN pip install --upgrade pip
 RUN pip install --prefix=/install --upgrade streamlink 
 RUN pip install --prefix=/install --upgrade oauth2client
 RUN pip install --prefix=/install --upgrade oauthlib
 RUN pip install --prefix=/install --upgrade requests_oauthlib
+RUN pip install --prefix=/install --upgrade python-telegram-bot
 
 # Run in minimal alpine container with no other dependencies
 FROM base as runner

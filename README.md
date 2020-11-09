@@ -12,6 +12,11 @@ I'm also interested with new projects for automation of daily popular tasks, don
 # Notes
 
 
+## 1.9.0
+Integration telegram notification
+
+upgrade python 3.9.0-alpine3.12
+
 ## 1.8.0 - 1.8.3
 Full rework with support of OAuth2 token management
 Review of helix twitch operation and simplification of the flow

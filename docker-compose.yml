@@ -1,7 +1,7 @@
 version: '3.7'
 
 x-common: &common
-    image: liofal/streamlink:1.8.3
+    image: liofal/streamlink:1.9.0-beta
     build:
       context: .
       dockerfile: Dockerfile
@@ -34,11 +34,7 @@ services:
  
  serral:
     <<: *common
-    container_name: streamlink_serral
     environment:
       - user=serral
       - quality=best
-      - timer=240
 
-  
-  
