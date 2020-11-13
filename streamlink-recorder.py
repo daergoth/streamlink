@@ -105,7 +105,7 @@ def loopcheck():
         # start streamlink process
         post_to_slack("recording " + user+" ...")
         print(user, "recording ... ")
-        call_str = ["streamlink", "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o \"", recorded_filename, "\"", streamlink_args]
+        call_str = ["streamlink", "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o", recorded_filename, streamlink_args]
         subprocess.call(" ".join(call_str), shell=True)
         print("Stream is done. Going back to checking.. ")
         post_to_slack("Stream "+ user +" is done. Going back to checking..")
