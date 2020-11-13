@@ -27,6 +27,7 @@ client_secret = ""
 token = ""
 slack_id = ""
 game_list = ""
+streamlink_args = ""
 
 # Init variables with some default values
 def post_to_slack(message):
@@ -95,16 +96,17 @@ def loopcheck():
     elif status == 4:
         print("unwanted game stream, checking again in", timer, "seconds")
     elif status == 0:
-        filename = user + " - " + datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S") + " - " + "title" + ".mp4"
+        filename = user + "-" + datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + "-" + "title" + ".mp4"
         
-        # clean filename from unecessary characters
-        filename = "".join(x for x in filename if x.isalnum() or x in [" ", "-", "_", "."])
+        # clean filename from unnecessary characters
+        filename = "".join(x for x in filename if x.isalnum() or x in ["-", "_", "."])
         recorded_filename = os.path.join("/download/", filename)
         
         # start streamlink process
         post_to_slack("recording " + user+" ...")
         print(user, "recording ... ")
-        subprocess.call(["streamlink", "--twitch-disable-hosting", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o", recorded_filename])
+        call_str = ["streamlink", "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o \"", recorded_filename, "\"", streamlink_args]
+        subprocess.call(" ".join(call_str), shell=True)
         print("Stream is done. Going back to checking.. ")
         post_to_slack("Stream "+ user +" is done. Going back to checking..")
 
@@ -119,6 +121,7 @@ def main():
     global client_secret
     global slack_id
     global game_list
+    global streamlink_args
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-timer", help="Stream check interval (less than 15s are not recommended)")
@@ -128,6 +131,7 @@ def main():
     parser.add_argument("-clientsecret", help="Your twitch app client secret")
     parser.add_argument("-slackid", help="Your slack app client id")
     parser.add_argument("-gamelist", help="The game list to be recorded")
+    parser.add_argument("-streamlinkargs", help="Additional arguments for streamlink")
     args = parser.parse_args()
  
     if args.timer is not None:
@@ -151,6 +155,9 @@ def main():
     if client_secret is None:
         print("Please create a twitch app and set the client secret with -clientsecret [YOUR SECRET]")
         return
+
+    if args.streamlinkargs is not None:
+        streamlink_args = args.streamlinkargs
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
     loopcheck()
