@@ -94,6 +94,8 @@ def check_user(streamer_username):
 
 
 def check_recording_limits():
+    print("Checking for recordings to delete...")
+
     files = [os.path.join(SAVE_PATH, f) for f in os.listdir(SAVE_PATH)]
     augmented_files = [
         {"filename": f, "size": os.stat(f).st_size, "mod_time": os.stat(f).st_mtime, "deleted": False}
