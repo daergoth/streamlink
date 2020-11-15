@@ -101,10 +101,10 @@ def check_recording_limits():
         {"filename": f, "size": os.stat(f).st_size, "mod_time": os.stat(f).st_mtime, "deleted": False}
         for f in files
     ]
-    sorted(augmented_files, key=lambda f: f["mod_time"], reverse=True)
+    augmented_files = sorted(augmented_files, key=lambda f: f["mod_time"], reverse=True)
     current_epoch_time = int(time.time())
 
-    if recording_retention_period_in_days is not None:
+    if recording_retention_period_in_days is not None and recording_retention_period_in_days != "":
         day_limit = int(recording_retention_period_in_days)
         if day_limit > 0:
             current_day_limit = current_epoch_time - (day_limit * 24 * 60 * 60)
@@ -116,7 +116,7 @@ def check_recording_limits():
 
     augmented_files = [f for f in augmented_files if not f["deleted"]]
 
-    if recording_size_limit_in_mb is not None:
+    if recording_size_limit_in_mb is not None and recording_size_limit_in_mb != "":
         size_limit = int(recording_size_limit_in_mb)
         if size_limit > 0:
             sum_size = augmented_files[0]["size"]
