@@ -5,6 +5,7 @@ import argparse
 
 import requests
 import json
+import time
 import os
 
 from threading import Timer
@@ -18,6 +19,9 @@ from requests_oauthlib import OAuth2Session
 # log.addHandler(logging.StreamHandler(sys.stdout))
 # log.setLevel(logging.DEBUG)
 
+# Constants
+SAVE_PATH = "/download/"
+
 # Init variables with some default values
 timer = 30
 user = ""
@@ -28,6 +32,9 @@ token = ""
 slack_id = ""
 game_list = ""
 streamlink_args = ""
+recording_size_limit_in_mb = "0"
+recording_retention_period_in_days = "3"
+
 
 # Init variables with some default values
 def post_to_slack(message):
@@ -48,6 +55,7 @@ def post_to_slack(message):
             % (response.status_code, response.text)
         )
 
+
 # still need to manage token refresh based on expiration
 def get_from_twitch(operation):
     client = BackendApplicationClient(client_id=client_id)
@@ -55,7 +63,7 @@ def get_from_twitch(operation):
     token = oauth.fetch_token(token_url='https://id.twitch.tv/oauth2/token', client_id=client_id, client_secret=client_secret,include_client_id=True)
 
     url = 'https://api.twitch.tv/helix/' + operation
-    response = oauth.get(url,headers={'Accept':'application/json','Client-ID':client_id})
+    response = oauth.get(url, headers={'Accept': 'application/json', 'Client-ID': client_id})
 
     if response.status_code != 200:
         raise ValueError(
@@ -69,20 +77,55 @@ def get_from_twitch(operation):
         print(e)
     return info
 
-def check_user(user):
 
+def check_user(streamer_username):
     try:
-        info = get_from_twitch('streams?user_login=' + user )
-        if len(info['data']) == 0 :
+        info = get_from_twitch('streams?user_login=' + streamer_username)
+        if len(info['data']) == 0:
             status = 1
-        elif game_list !='' and info['data'][0].get("game_id") not in game_list.split(','):
-                status = 4
+        elif game_list != '' and info['data'][0].get("game_id") not in game_list.split(','):
+            status = 4
         else:
             status = 0
     except Exception as e:
         print(e)
         status = 3
     return status
+
+
+def check_recording_limits():
+    print("Checking for recordings to delete...")
+
+    files = [os.path.join(SAVE_PATH, f) for f in os.listdir(SAVE_PATH)]
+    augmented_files = [
+        {"filename": f, "size": os.stat(f).st_size, "mod_time": os.stat(f).st_mtime, "deleted": False}
+        for f in files
+    ]
+    augmented_files = sorted(augmented_files, key=lambda f: f["mod_time"], reverse=True)
+    current_epoch_time = int(time.time())
+
+    if recording_retention_period_in_days is not None and recording_retention_period_in_days != "":
+        day_limit = int(recording_retention_period_in_days)
+        if day_limit > 0:
+            current_day_limit = current_epoch_time - (day_limit * 24 * 60 * 60)
+            for f in augmented_files:
+                if f["mod_time"] < current_day_limit:
+                    print("Too old recording, deleting {}... ".format(f["filename"]))
+                    os.remove(f["filename"])
+                    f["deleted"] = True
+
+    augmented_files = [f for f in augmented_files if not f["deleted"]]
+
+    if recording_size_limit_in_mb is not None and recording_size_limit_in_mb != "":
+        size_limit = int(recording_size_limit_in_mb)
+        if size_limit > 0:
+            sum_size = augmented_files[0]["size"]
+            for f in augmented_files[1:]:
+                sum_size += (f["size"] / 1024 / 1024)
+                if sum_size > size_limit:
+                    print("Recordings exceeding size limit, deleting {}...".format(f["filename"]))
+                    os.remove(f["filename"])
+
 
 def loopcheck():
     status = check_user(user)
@@ -96,22 +139,29 @@ def loopcheck():
     elif status == 4:
         print("unwanted game stream, checking again in", timer, "seconds")
     elif status == 0:
+        check_recording_limits()
+
         filename = user + "-" + datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + "-" + "title" + ".mp4"
-        
         # clean filename from unnecessary characters
         filename = "".join(x for x in filename if x.isalnum() or x in ["-", "_", "."])
-        recorded_filename = os.path.join("/download/", filename)
+        recorded_filename = os.path.join(SAVE_PATH, filename)
         
         # start streamlink process
         post_to_slack("recording " + user+" ...")
         print(user, "recording ... ")
-        call_str = ["streamlink", "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns", "--retry-max", "5", "--retry-streams", "60", "twitch.tv/" + user, quality, "-o", recorded_filename, streamlink_args]
-        subprocess.call(" ".join(call_str), shell=True)
+        arguments_list = ["streamlink",
+                          "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns",
+                          "--hls-live-restart", "--retry-max", "5", "--retry-streams", "60",
+                          "twitch.tv/" + user, quality,
+                          "-o", recorded_filename,
+                          streamlink_args]
+        subprocess.call(" ".join(arguments_list), shell=True)
         print("Stream is done. Going back to checking.. ")
-        post_to_slack("Stream "+ user +" is done. Going back to checking..")
+        post_to_slack("Stream " + user + " is done. Going back to checking..")
 
     t = Timer(timer, loopcheck)
     t.start()
+
 
 def main():
     global timer
@@ -122,6 +172,8 @@ def main():
     global slack_id
     global game_list
     global streamlink_args
+    global recording_size_limit_in_mb
+    global recording_retention_period_in_days
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-timer", help="Stream check interval (less than 15s are not recommended)")
@@ -132,6 +184,8 @@ def main():
     parser.add_argument("-slackid", help="Your slack app client id")
     parser.add_argument("-gamelist", help="The game list to be recorded")
     parser.add_argument("-streamlinkargs", help="Additional arguments for streamlink")
+    parser.add_argument("-recordingsizelimit", help="Older recordings will be deleted so the remaining will take up space upto the given limit in MBs")
+    parser.add_argument("-recordingretention", help="Recording older than the given limit (in days) will be deleted")
     args = parser.parse_args()
  
     if args.timer is not None:
@@ -158,9 +212,14 @@ def main():
 
     if args.streamlinkargs is not None:
         streamlink_args = args.streamlinkargs
+    if args.recordingsizelimit is not None:
+        recording_size_limit_in_mb = args.recordingsizelimit
+    if args.recordingretention is not None:
+        recording_retention_period_in_days = args.recordingretention
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
     loopcheck()
+
 
 if __name__ == "__main__":
     # execute only if run as a script
