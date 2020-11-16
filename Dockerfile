@@ -13,11 +13,14 @@ RUN pip install --prefix=/install --upgrade streamlink
 RUN pip install --prefix=/install --upgrade oauth2client
 RUN pip install --prefix=/install --upgrade oauthlib
 RUN pip install --prefix=/install --upgrade requests_oauthlib
+RUN pip install --prefix=/install --upgrade pycountry
 
 # Run in minimal alpine container with no other dependencies
 FROM base as runner
 COPY --from=builder /install /usr/local
 ADD streamlink-recorder.py /
+
+RUN apk add ffmpeg --no-cache
 
 # Configure entrypoint with environment variables (only user is mandatory)
 ENTRYPOINT python ./streamlink-recorder.py -user=${user} -timer=${timer} -quality=${quality} -clientid=${clientid} -clientsecret=${clientsecret} -slackid=${slackid} -gamelist="${gamelist}" -streamlinkargs="${streamlinkargs}" -recordingsizelimit="${recordingsizelimit}" -recordingretention="${recordingretention}"

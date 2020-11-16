@@ -1,14 +1,18 @@
 # This script checks if a user on twitch is currently streaming and then records the stream via streamlink
 import subprocess
-import datetime
+import pycountry
 import argparse
-
 import requests
+import random
+import string
+import shutil
 import json
 import time
 import os
 
+from enum import Enum
 from threading import Timer
+from datetime import datetime
 from oauthlib.oauth2 import BackendApplicationClient
 from requests_oauthlib import OAuth2Session
 
@@ -78,19 +82,33 @@ def get_from_twitch(operation):
     return info
 
 
+class StreamCheck(Enum):
+    ONLINE = 0
+    OFFLINE = 1
+    USER_NOT_FOUND = 2
+    ERROR = 3
+    UNWANTED_GAME = 4
+
+
 def check_user(streamer_username):
+    data = None
     try:
         info = get_from_twitch('streams?user_login=' + streamer_username)
         if len(info['data']) == 0:
-            status = 1
+            status = StreamCheck.OFFLINE
         elif game_list != '' and info['data'][0].get("game_id") not in game_list.split(','):
-            status = 4
+            status = StreamCheck.UNWANTED_GAME
+            data = info['data'][0]
         else:
-            status = 0
+            status = StreamCheck.ONLINE
+            data = info['data'][0]
     except Exception as e:
         print(e)
-        status = 3
-    return status
+        status = StreamCheck.ERROR
+    return {
+        "status": status,
+        "data": data
+    }
 
 
 def check_recording_limits():
@@ -127,35 +145,69 @@ def check_recording_limits():
                     os.remove(f["filename"])
 
 
+def start_recording(recorded_filename):
+    recorded_filename = "\"" + recorded_filename + "\""
+
+    post_to_slack("recording " + user + " ...")
+    print(user, "recording ... ")
+
+    arguments = ["streamlink",
+                 "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns",
+                 "--hls-live-restart", "--retry-max", "5", "--retry-streams", "60",
+                 "twitch.tv/" + user, quality,
+                 "-o", recorded_filename,
+                 streamlink_args]
+    return subprocess.call(" ".join(arguments), shell=True)
+
+
+def get_tmp_filename(length):
+    letters_and_digits = string.ascii_letters + string.digits
+    return ''.join((random.choice(letters_and_digits) for i in range(length)))
+
+
+def add_metadata(recorded_filename, title, language):
+    tmp_filename = os.path.join("/tmp/", get_tmp_filename(32) + ".mp4")
+    lang = pycountry.languages.get(alpha_2=language)
+
+    arguments = ["ffmpeg",
+                 "-i", "\"" + recorded_filename + "\"",
+                 "-metadata", "title=\"{}\"".format(title),
+                 "-metadata:s:a:0", "language={}".format(lang.alpha_3),
+                 "-codec", "copy",
+                 tmp_filename]
+    subprocess.call(" ".join(arguments), shell=True)
+    return shutil.copy2(tmp_filename, recorded_filename)
+
+
 def loopcheck():
-    status = check_user(user)
-    if status == 2:
+    info = check_user(user)
+    status = info["status"]
+    stream_data = info["data"]
+
+    if status == StreamCheck.USER_NOT_FOUND:
         print("username not found. invalid username?")
         return
-    elif status == 3:
+    elif status == StreamCheck.ERROR:
         print("unexpected error. maybe try again later")
-    elif status == 1:
+    elif status == StreamCheck.OFFLINE:
         print(user, "currently offline, checking again in", timer, "seconds")
-    elif status == 4:
+    elif status == StreamCheck.UNWANTED_GAME:
         print("unwanted game stream, checking again in", timer, "seconds")
-    elif status == 0:
+    elif status == StreamCheck.ONLINE:
         check_recording_limits()
+        stream_title = stream_data["title"]
+        username = stream_data["user_name"]
+        language = stream_data["language"]
 
-        filename = user + "-" + datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + "-" + "title" + ".mp4"
-        # clean filename from unnecessary characters
-        filename = "".join(x for x in filename if x.isalnum() or x in ["-", "_", "."])
+        filename = stream_title + " - " + username + " - " + datetime.now().strftime("%Y-%m-%d %H-%M-%S") + ".mp4"
+        # clean filename from invalid characters
+        filename = "".join(x for x in filename if x not in ["\\", "/", ":", "*", "?", "\"", "<", ">", "|"])
         recorded_filename = os.path.join(SAVE_PATH, filename)
         
         # start streamlink process
-        post_to_slack("recording " + user+" ...")
-        print(user, "recording ... ")
-        arguments_list = ["streamlink",
-                          "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns",
-                          "--hls-live-restart", "--retry-max", "5", "--retry-streams", "60",
-                          "twitch.tv/" + user, quality,
-                          "-o", recorded_filename,
-                          streamlink_args]
-        subprocess.call(" ".join(arguments_list), shell=True)
+        start_recording(recorded_filename)
+        add_metadata(recorded_filename, stream_title, language)
+
         print("Stream is done. Going back to checking.. ")
         post_to_slack("Stream " + user + " is done. Going back to checking..")
 
