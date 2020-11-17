@@ -215,6 +215,8 @@ def loopcheck(do_delete):
         if do_delete:
             check_recording_limits()
         record_stream(stream_data)
+        # Wait for problematic stream parts to pass
+        time.sleep(10)
         loopcheck(False)
 
     t = Timer(timer, loopcheck, [True])
