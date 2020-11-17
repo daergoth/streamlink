@@ -19,8 +19,9 @@ Added recording retention parameters:
 - 'recordingsizelimit="512"': Maximum size of the recordings in total in MBs
 - 'recordingretention="3"': Recordings older than the given limit (in days) will be deleted
 
-Implement more user-friendly recording naming scheme
-Edit recording metadata to include stream title and audio language
+Implement more user-friendly recording naming scheme  
+Edit recording metadata to include stream title and audio language  
+Added after-stream double check to restart recording as soon as possible in case of a stream error
 
 ### 1.8.4
 Added support for passing additional arguments to Streamlink 

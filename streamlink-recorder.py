@@ -145,7 +145,7 @@ def check_recording_limits():
                     os.remove(f["filename"])
 
 
-def start_recording(recorded_filename):
+def start_streamlink(recorded_filename):
     recorded_filename = "\"" + recorded_filename + "\""
 
     post_to_slack("recording " + user + " ...")
@@ -179,7 +179,25 @@ def add_metadata(recorded_filename, title, language):
     return shutil.copy2(tmp_filename, recorded_filename)
 
 
-def loopcheck():
+def record_stream(stream_data):
+    stream_title = stream_data["title"]
+    username = stream_data["user_name"]
+    language = stream_data["language"]
+
+    filename = stream_title + " - " + username + " - " + datetime.now().strftime("%Y-%m-%d %H-%M-%S") + ".mp4"
+    # clean filename from invalid characters
+    filename = "".join(x for x in filename if x not in ["\\", "/", ":", "*", "?", "\"", "<", ">", "|"])
+    recorded_filename = os.path.join(SAVE_PATH, filename)
+
+    # start streamlink process
+    start_streamlink(recorded_filename)
+    add_metadata(recorded_filename, stream_title, language)
+
+    print("Stream is done. Going back to checking.. ")
+    post_to_slack("Stream " + user + " is done. Going back to checking..")
+
+
+def loopcheck(do_delete):
     info = check_user(user)
     status = info["status"]
     stream_data = info["data"]
@@ -194,24 +212,12 @@ def loopcheck():
     elif status == StreamCheck.UNWANTED_GAME:
         print("unwanted game stream, checking again in", timer, "seconds")
     elif status == StreamCheck.ONLINE:
-        check_recording_limits()
-        stream_title = stream_data["title"]
-        username = stream_data["user_name"]
-        language = stream_data["language"]
+        if do_delete:
+            check_recording_limits()
+        record_stream(stream_data)
+        loopcheck(False)
 
-        filename = stream_title + " - " + username + " - " + datetime.now().strftime("%Y-%m-%d %H-%M-%S") + ".mp4"
-        # clean filename from invalid characters
-        filename = "".join(x for x in filename if x not in ["\\", "/", ":", "*", "?", "\"", "<", ">", "|"])
-        recorded_filename = os.path.join(SAVE_PATH, filename)
-        
-        # start streamlink process
-        start_recording(recorded_filename)
-        add_metadata(recorded_filename, stream_title, language)
-
-        print("Stream is done. Going back to checking.. ")
-        post_to_slack("Stream " + user + " is done. Going back to checking..")
-
-    t = Timer(timer, loopcheck)
+    t = Timer(timer, loopcheck, [True])
     t.start()
 
 
@@ -270,7 +276,7 @@ def main():
         recording_retention_period_in_days = args.recordingretention
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
-    loopcheck()
+    loopcheck(True)
 
 
 if __name__ == "__main__":
