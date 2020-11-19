@@ -1,16 +1,12 @@
-# This script checks if a user on twitch is currently streaming and then records the stream via streamlink
-import subprocess
-import pycountry
 import argparse
-import random
-import string
-import shutil
 import time
-import os
 
 from threading import Timer
-from datetime import datetime
 
+from twitch.stream_check import StreamCheck
+from twitch.stream_check_service import TwitchStreamCheckService
+from recording.stream_recorder_service import StreamRecorderService
+from recording.record_retention_service import RecordRetentionService
 from notification.notification_service_repository import NotificationServiceRepository
 from notification.implementations.slack_notification_service import SlackNotificationService
 
@@ -22,9 +18,6 @@ from notification.implementations.slack_notification_service import SlackNotific
 # log.setLevel(logging.DEBUG)
 
 # Constants
-from twitch.stream_check import StreamCheck
-from twitch.stream_check_service import TwitchStreamCheckService
-
 SAVE_PATH = "/download/"
 
 # Init variables with some default values
@@ -40,93 +33,10 @@ streamlink_args = ""
 recording_size_limit_in_mb = "0"
 recording_retention_period_in_days = "3"
 
+# Services
 stream_check_service = None
-
-
-def check_recording_limits():
-    print("Checking for recordings to delete...")
-
-    files = [os.path.join(SAVE_PATH, f) for f in os.listdir(SAVE_PATH)]
-    augmented_files = [
-        {"filename": f, "size": os.stat(f).st_size, "mod_time": os.stat(f).st_mtime, "deleted": False}
-        for f in files
-    ]
-    augmented_files = sorted(augmented_files, key=lambda f: f["mod_time"], reverse=True)
-    current_epoch_time = int(time.time())
-
-    if recording_retention_period_in_days is not None and recording_retention_period_in_days != "":
-        day_limit = int(recording_retention_period_in_days)
-        if day_limit > 0:
-            current_day_limit = current_epoch_time - (day_limit * 24 * 60 * 60)
-            for f in augmented_files:
-                if f["mod_time"] < current_day_limit:
-                    print("Too old recording, deleting {}... ".format(f["filename"]))
-                    os.remove(f["filename"])
-                    f["deleted"] = True
-
-    augmented_files = [f for f in augmented_files if not f["deleted"]]
-
-    if recording_size_limit_in_mb is not None and recording_size_limit_in_mb != "":
-        size_limit = int(recording_size_limit_in_mb)
-        if size_limit > 0:
-            sum_size = augmented_files[0]["size"]
-            for f in augmented_files[1:]:
-                sum_size += (f["size"] / 1024 / 1024)
-                if sum_size > size_limit:
-                    print("Recordings exceeding size limit, deleting {}...".format(f["filename"]))
-                    os.remove(f["filename"])
-
-
-def start_streamlink(recorded_filename):
-    recorded_filename = "\"" + recorded_filename + "\""
-
-    arguments = ["streamlink",
-                 "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns",
-                 "--hls-live-restart", "--retry-max", "5", "--retry-streams", "60",
-                 "twitch.tv/" + user, quality,
-                 "-o", recorded_filename,
-                 streamlink_args]
-    return subprocess.call(" ".join(arguments), shell=True)
-
-
-def get_tmp_filename(length):
-    letters_and_digits = string.ascii_letters + string.digits
-    return ''.join((random.choice(letters_and_digits) for i in range(length)))
-
-
-def add_metadata(recorded_filename, title, language):
-    tmp_filename = os.path.join("/tmp/", get_tmp_filename(32) + ".mp4")
-    lang = pycountry.languages.get(alpha_2=language)
-
-    arguments = ["ffmpeg",
-                 "-i", "\"" + recorded_filename + "\"",
-                 "-metadata", "title=\"{}\"".format(title),
-                 "-metadata:s:a:0", "language={}".format(lang.alpha_3),
-                 "-codec", "copy",
-                 tmp_filename]
-    subprocess.call(" ".join(arguments), shell=True)
-    return shutil.copy2(tmp_filename, recorded_filename)
-
-
-def record_stream(stream_data):
-    stream_title = stream_data["title"]
-    username = stream_data["user_name"]
-    language = stream_data["language"]
-
-    filename = stream_title + " - " + username + " - " + datetime.now().strftime("%Y-%m-%d %H-%M-%S") + ".mp4"
-    # clean filename from invalid characters
-    filename = "".join(x for x in filename if x not in ["\\", "/", ":", "*", "?", "\"", "<", ">", "|"])
-    recorded_filename = os.path.join(SAVE_PATH, filename)
-
-    # start streamlink process
-    NotificationServiceRepository.get_instance().notify_start_recording(username, stream_title)
-    print(user, "recording ... ")
-
-    start_streamlink(recorded_filename)
-    add_metadata(recorded_filename, stream_title, language)
-
-    NotificationServiceRepository.get_instance().notify_end_recording(username, stream_title)
-    print("Stream is done. Going back to checking.. ")
+stream_recorder_service = None
+record_retention_service = None
 
 
 def loopcheck(do_delete):
@@ -144,9 +54,8 @@ def loopcheck(do_delete):
     elif status == StreamCheck.UNWANTED_GAME:
         print("unwanted game stream, checking again in", timer, "seconds")
     elif status == StreamCheck.ONLINE:
-        if do_delete:
-            check_recording_limits()
-        record_stream(stream_data)
+        stream_recorder_service.start_recording(stream_data, do_delete)
+
         # Wait for problematic stream parts to pass
         time.sleep(10)
         loopcheck(False)
@@ -168,22 +77,41 @@ def main():
     global recording_retention_period_in_days
 
     global stream_check_service
+    global stream_recorder_service
+    global record_retention_service
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-timer", help="Stream check interval (less than 15s are not recommended)")
-    parser.add_argument("-user", help="Twitch user that we are checking")
-    parser.add_argument("-quality", help="Recording quality")
-    parser.add_argument("-clientid", help="Your twitch app client id")
-    parser.add_argument("-clientsecret", help="Your twitch app client secret")
-    parser.add_argument("-slackid", help="Your slack app client id")
-    parser.add_argument("-gamelist", help="The game list to be recorded")
-    parser.add_argument("-streamlinkargs", help="Additional arguments for streamlink")
-    parser.add_argument("-recordingsizelimit", help="Older recordings will be deleted so the remaining will take up space upto the given limit in MBs")
-    parser.add_argument("-recordingretention", help="Recording older than the given limit (in days) will be deleted")
+    parser.add_argument("-timer",
+                        type=int,
+                        help="Stream check interval (less than 15s are not recommended)")
+    parser.add_argument("-user",
+                        help="Twitch user that we are checking")
+    parser.add_argument("-quality",
+                        help="Recording quality")
+    parser.add_argument("-gamelist",
+                        help="The game list to be recorded")
+
+    parser.add_argument("-clientid",
+                        help="Your twitch app client id")
+    parser.add_argument("-clientsecret",
+                        help="Your twitch app client secret")
+
+    parser.add_argument("-slackid",
+                        help="Your slack app client id")
+
+    parser.add_argument("-streamlinkargs",
+                        help="Additional arguments for streamlink")
+
+    parser.add_argument("-recordingsizelimit",
+                        type=int,
+                        help="Older recordings will be deleted so the remaining will take up space upto the given limit in MBs")
+    parser.add_argument("-recordingretention",
+                        type=int,
+                        help="Recording older than the given limit (in days) will be deleted")
     args = parser.parse_args()
  
     if args.timer is not None:
-        timer = int(args.timer)
+        timer = args.timer
     if args.user is not None:
         user = args.user
     if args.quality is not None:
@@ -212,6 +140,10 @@ def main():
         recording_retention_period_in_days = args.recordingretention
 
     NotificationServiceRepository.get_instance().register_notification_service(SlackNotificationService(slack_id))
+
+    record_retention_service = RecordRetentionService(recording_retention_period_in_days, recording_size_limit_in_mb)
+
+    stream_recorder_service = StreamRecorderService(record_retention_service)
     stream_check_service = TwitchStreamCheckService(client_id, client_secret, game_list.split(","))
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
