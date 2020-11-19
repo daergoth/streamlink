@@ -5,15 +5,11 @@ import argparse
 import random
 import string
 import shutil
-import json
 import time
 import os
 
-from enum import Enum
 from threading import Timer
 from datetime import datetime
-from oauthlib.oauth2 import BackendApplicationClient
-from requests_oauthlib import OAuth2Session
 
 from notification.notification_service_repository import NotificationServiceRepository
 from notification.implementations.slack_notification_service import SlackNotificationService
@@ -26,6 +22,9 @@ from notification.implementations.slack_notification_service import SlackNotific
 # log.setLevel(logging.DEBUG)
 
 # Constants
+from twitch.stream_check import StreamCheck
+from twitch.stream_check_service import TwitchStreamCheckService
+
 SAVE_PATH = "/download/"
 
 # Init variables with some default values
@@ -41,56 +40,7 @@ streamlink_args = ""
 recording_size_limit_in_mb = "0"
 recording_retention_period_in_days = "3"
 
-
-# still need to manage token refresh based on expiration
-def get_from_twitch(operation):
-    client = BackendApplicationClient(client_id=client_id)
-    oauth = OAuth2Session(client=client)
-    token = oauth.fetch_token(token_url='https://id.twitch.tv/oauth2/token', client_id=client_id, client_secret=client_secret,include_client_id=True)
-
-    url = 'https://api.twitch.tv/helix/' + operation
-    response = oauth.get(url, headers={'Accept': 'application/json', 'Client-ID': client_id})
-
-    if response.status_code != 200:
-        raise ValueError(
-            'Request to twitch returned an error %s, the response is:\n%s'
-            % (response.status_code, response.text)
-        )
-    try:
-        info = json.loads(response.content)
-        # print(json.dumps(info, indent=4, sort_keys=True))
-    except Exception as e:
-        print(e)
-    return info
-
-
-class StreamCheck(Enum):
-    ONLINE = 0
-    OFFLINE = 1
-    USER_NOT_FOUND = 2
-    ERROR = 3
-    UNWANTED_GAME = 4
-
-
-def check_user(streamer_username):
-    data = None
-    try:
-        info = get_from_twitch('streams?user_login=' + streamer_username)
-        if len(info['data']) == 0:
-            status = StreamCheck.OFFLINE
-        elif game_list != '' and info['data'][0].get("game_id") not in game_list.split(','):
-            status = StreamCheck.UNWANTED_GAME
-            data = info['data'][0]
-        else:
-            status = StreamCheck.ONLINE
-            data = info['data'][0]
-    except Exception as e:
-        print(e)
-        status = StreamCheck.ERROR
-    return {
-        "status": status,
-        "data": data
-    }
+stream_check_service = None
 
 
 def check_recording_limits():
@@ -180,7 +130,7 @@ def record_stream(stream_data):
 
 
 def loopcheck(do_delete):
-    info = check_user(user)
+    info = stream_check_service.check_user(user)
     status = info["status"]
     stream_data = info["data"]
 
@@ -216,6 +166,8 @@ def main():
     global streamlink_args
     global recording_size_limit_in_mb
     global recording_retention_period_in_days
+
+    global stream_check_service
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-timer", help="Stream check interval (less than 15s are not recommended)")
@@ -260,6 +212,7 @@ def main():
         recording_retention_period_in_days = args.recordingretention
 
     NotificationServiceRepository.get_instance().register_notification_service(SlackNotificationService(slack_id))
+    stream_check_service = TwitchStreamCheckService(client_id, client_secret, game_list.split(","))
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
     loopcheck(True)
