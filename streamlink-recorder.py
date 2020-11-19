@@ -2,7 +2,6 @@
 import subprocess
 import pycountry
 import argparse
-import requests
 import random
 import string
 import shutil
@@ -15,6 +14,9 @@ from threading import Timer
 from datetime import datetime
 from oauthlib.oauth2 import BackendApplicationClient
 from requests_oauthlib import OAuth2Session
+
+from notification.notification_service_repository import NotificationServiceRepository
+from notification.implementations.slack_notification_service import SlackNotificationService
 
 ## enable extra logging
 # import logging
@@ -38,26 +40,6 @@ game_list = ""
 streamlink_args = ""
 recording_size_limit_in_mb = "0"
 recording_retention_period_in_days = "3"
-
-
-# Init variables with some default values
-def post_to_slack(message):
-    if slack_id is None:
-        print("slackid is not specified, so disabling slack notification")
-        pass
-
-    slack_url = "https://hooks.slack.com/services/" + slack_id
-    slack_data = {'text': message}
-
-    response = requests.post(
-        slack_url, data=json.dumps(slack_data),
-        headers={'Content-Type': 'application/json'}
-    )
-    if response.status_code != 200:
-        raise ValueError(
-            'Request to slack returned an error %s, the response is:\n%s'
-            % (response.status_code, response.text)
-        )
 
 
 # still need to manage token refresh based on expiration
@@ -148,9 +130,6 @@ def check_recording_limits():
 def start_streamlink(recorded_filename):
     recorded_filename = "\"" + recorded_filename + "\""
 
-    post_to_slack("recording " + user + " ...")
-    print(user, "recording ... ")
-
     arguments = ["streamlink",
                  "--twitch-disable-hosting", "--twitch-disable-ads", "--twitch-disable-reruns",
                  "--hls-live-restart", "--retry-max", "5", "--retry-streams", "60",
@@ -190,11 +169,14 @@ def record_stream(stream_data):
     recorded_filename = os.path.join(SAVE_PATH, filename)
 
     # start streamlink process
+    NotificationServiceRepository.get_instance().notify_start_recording(username, stream_title)
+    print(user, "recording ... ")
+
     start_streamlink(recorded_filename)
     add_metadata(recorded_filename, stream_title, language)
 
+    NotificationServiceRepository.get_instance().notify_end_recording(username, stream_title)
     print("Stream is done. Going back to checking.. ")
-    post_to_slack("Stream " + user + " is done. Going back to checking..")
 
 
 def loopcheck(do_delete):
@@ -276,6 +258,8 @@ def main():
         recording_size_limit_in_mb = args.recordingsizelimit
     if args.recordingretention is not None:
         recording_retention_period_in_days = args.recordingretention
+
+    NotificationServiceRepository.get_instance().register_notification_service(SlackNotificationService(slack_id))
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
     loopcheck(True)
