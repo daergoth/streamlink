@@ -2,8 +2,8 @@ import os
 import random
 import shutil
 import string
-import datetime
 import subprocess
+from datetime import datetime
 
 import pycountry
 
@@ -18,12 +18,12 @@ class StreamRecorderService:
     def __init__(self, record_retention_service: RecordRetentionService):
         self.record_retention_service = record_retention_service
 
-    def start_recording(self, stream_data, do_delete=True):
+    def start_recording(self, stream_data, quality="best", do_delete=True, streamlink_args=""):
         if do_delete:
             self.record_retention_service.check_recording_limits()
-        self.__record_stream(stream_data)
+        self.__record_stream(stream_data, quality, streamlink_args)
 
-    def __record_stream(self, stream_data):
+    def __record_stream(self, stream_data, quality, streamlink_args):
         stream_title = stream_data["title"]
         username = stream_data["user_name"]
         language = stream_data["language"]
@@ -37,8 +37,9 @@ class StreamRecorderService:
         NotificationServiceRepository.get_instance().notify_start_recording(username, stream_title)
         print(username, "recording ... ")
 
-        self.__start_streamlink(recorded_filename)
-        self.__add_metadata(recorded_filename, stream_title, language)
+        self.__start_streamlink(recorded_filename, username, quality, streamlink_args)
+        if os.path.exists(recorded_filename):
+            self.__add_metadata(recorded_filename, stream_title, language)
 
         NotificationServiceRepository.get_instance().notify_end_recording(username, stream_title)
         print("Stream is done. Going back to checking.. ")

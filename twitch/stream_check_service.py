@@ -17,7 +17,7 @@ class TwitchStreamCheckService(TwitchService):
     def check_user(self, streamer_username):
         data = None
         try:
-            info = self.__get_from_twitch('streams?user_login=' + streamer_username)
+            info = self.get_from_twitch('streams?user_login=' + streamer_username)
 
             if len(info['data']) == 0:
                 status = StreamCheck.OFFLINE

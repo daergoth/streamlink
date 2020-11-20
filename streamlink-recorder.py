@@ -28,15 +28,15 @@ client_id = ""
 client_secret = ""
 token = ""
 slack_id = ""
-game_list = ""
+game_list = []
 streamlink_args = ""
-recording_size_limit_in_mb = "0"
-recording_retention_period_in_days = "3"
+recording_size_limit_in_mb = 0
+recording_retention_period_in_days = 3
 
 # Services
-stream_check_service = None
-stream_recorder_service = None
-record_retention_service = None
+stream_check_service: TwitchStreamCheckService = None
+stream_recorder_service: StreamRecorderService = None
+record_retention_service: RecordRetentionService = None
 
 
 def loopcheck(do_delete):
@@ -54,7 +54,11 @@ def loopcheck(do_delete):
     elif status == StreamCheck.UNWANTED_GAME:
         print("unwanted game stream, checking again in", timer, "seconds")
     elif status == StreamCheck.ONLINE:
-        stream_recorder_service.start_recording(stream_data, do_delete)
+        stream_recorder_service.start_recording(
+            stream_data,
+            quality=quality,
+            do_delete=do_delete,
+            streamlink_args=streamlink_args)
 
         # Wait for problematic stream parts to pass
         time.sleep(10)
@@ -82,7 +86,6 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-timer",
-                        type=int,
                         help="Stream check interval (less than 15s are not recommended)")
     parser.add_argument("-user",
                         help="Twitch user that we are checking")
@@ -103,23 +106,23 @@ def main():
                         help="Additional arguments for streamlink")
 
     parser.add_argument("-recordingsizelimit",
-                        type=int,
+                        default="0",
                         help="Older recordings will be deleted so the remaining will take up space upto the given limit in MBs")
     parser.add_argument("-recordingretention",
-                        type=int,
+                        default="0",
                         help="Recording older than the given limit (in days) will be deleted")
     args = parser.parse_args()
  
-    if args.timer is not None:
-        timer = args.timer
+    if args.timer is not None and args.timer != "":
+        timer = int(args.timer)
     if args.user is not None:
         user = args.user
     if args.quality is not None:
         quality = args.quality
     if args.slackid is not None:
         slack_id = args.slackid
-    if args.gamelist is not None:
-        game_list = args.gamelist
+    if args.gamelist is not None and args.gamelist != "":
+        game_list = args.gamelist.split(",")
 
     if args.clientid is not None:
         client_id = args.clientid
@@ -134,17 +137,17 @@ def main():
 
     if args.streamlinkargs is not None:
         streamlink_args = args.streamlinkargs
-    if args.recordingsizelimit is not None:
-        recording_size_limit_in_mb = args.recordingsizelimit
-    if args.recordingretention is not None:
-        recording_retention_period_in_days = args.recordingretention
+    if args.recordingsizelimit is not None and args.recordingsizelimit != "":
+        recording_size_limit_in_mb = int(args.recordingsizelimit)
+    if args.recordingretention is not None and args.recordingretention != "":
+        recording_retention_period_in_days = int(args.recordingretention)
 
     NotificationServiceRepository.get_instance().register_notification_service(SlackNotificationService(slack_id))
 
     record_retention_service = RecordRetentionService(recording_retention_period_in_days, recording_size_limit_in_mb)
 
     stream_recorder_service = StreamRecorderService(record_retention_service)
-    stream_check_service = TwitchStreamCheckService(client_id, client_secret, game_list.split(","))
+    stream_check_service = TwitchStreamCheckService(client_id, client_secret, game_list)
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
     loopcheck(True)

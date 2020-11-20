@@ -13,7 +13,7 @@ class TwitchService:
         self.client_id = client_id
         self.client_secret = client_secret
 
-    def __get_from_twitch(self, operation):
+    def get_from_twitch(self, operation):
         client = BackendApplicationClient(client_id=self.client_id)
         oauth = OAuth2Session(client=client)
         token = oauth.fetch_token(token_url='https://id.twitch.tv/oauth2/token', client_id=self.client_id,
