@@ -19,6 +19,9 @@ RUN pip install --prefix=/install --upgrade pycountry
 FROM base as runner
 COPY --from=builder /install /usr/local
 ADD streamlink-recorder.py /
+ADD notification/ notification/
+ADD recording/ recording/
+ADD twitch/ twitch/
 
 RUN apk add ffmpeg --no-cache
 
