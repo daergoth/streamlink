@@ -21,7 +21,8 @@ Added recording retention parameters:
 
 Implement more user-friendly recording naming scheme  
 Edit recording metadata to include stream title and audio language  
-Added after-stream double check to restart recording as soon as possible in case of a stream error
+Added after-stream double check to restart recording as soon as possible in case of a stream error  
+Refactored codebase to help later development
 
 ### 1.8.4
 Added support for passing additional arguments to Streamlink 
