@@ -41,12 +41,12 @@ class RecordRetentionService:
 
     def __check_size_limit(self, files):
         if self.recording_size_limit_in_mb > 0:
-            sum_size = files[0]["size"]
-            for f in files[1:]:
-                sum_size += (f["size"] / 1024 / 1024)
+            sum_size = 0
+            for f in files:
                 if sum_size > self.recording_size_limit_in_mb:
                     print("Recordings exceeding size limit, deleting {}...".format(f["filename"]))
                     os.remove(f["filename"])
                     f["deleted"] = True
+                sum_size += (f["size"] / 1024 / 1024)
 
         return [f for f in files if not f["deleted"]]
