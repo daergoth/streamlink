@@ -69,4 +69,6 @@ class StreamRecorderService:
                      "-codec", "copy",
                      tmp_filename]
         subprocess.call(" ".join(arguments), shell=True)
-        return shutil.copy2(tmp_filename, recorded_filename)
+        result = shutil.copy2(tmp_filename, recorded_filename)
+        os.remove(tmp_filename)
+        return result
