@@ -86,10 +86,12 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-timer",
+                        default="300",
                         help="Stream check interval (less than 15s are not recommended)")
     parser.add_argument("-user",
                         help="Twitch user that we are checking")
     parser.add_argument("-quality",
+                        default="best",
                         help="Recording quality")
     parser.add_argument("-gamelist",
                         help="The game list to be recorded")
@@ -103,6 +105,7 @@ def main():
                         help="Your slack app client id")
 
     parser.add_argument("-streamlinkargs",
+                        default="",
                         help="Additional arguments for streamlink")
 
     parser.add_argument("-recordingsizelimit",
