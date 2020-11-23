@@ -39,20 +39,20 @@ stream_recorder_service: StreamRecorderService = None
 record_retention_service: RecordRetentionService = None
 
 
-def loopcheck(do_delete):
+def loopcheck(do_delete, start_timer):
     info = stream_check_service.check_user(user)
     status = info["status"]
     stream_data = info["data"]
 
     if status == StreamCheck.USER_NOT_FOUND:
-        print("username not found. invalid username?")
+        print("Streamer with username {} not found. Invalid username?".format(user))
         return
     elif status == StreamCheck.ERROR:
-        print("unexpected error. maybe try again later")
+        print("Unexpected error, try again later...")
     elif status == StreamCheck.OFFLINE:
-        print(user, "currently offline, checking again in", timer, "seconds")
+        print(user, "Stream currently offline, checking again in", timer, "seconds...")
     elif status == StreamCheck.UNWANTED_GAME:
-        print("unwanted game stream, checking again in", timer, "seconds")
+        print("Game in stream is not in the whitelist, checking again in", timer, "seconds...")
     elif status == StreamCheck.ONLINE:
         stream_recorder_service.start_recording(
             stream_data,
@@ -62,10 +62,11 @@ def loopcheck(do_delete):
 
         # Wait for problematic stream parts to pass
         time.sleep(10)
-        loopcheck(False)
+        loopcheck(do_delete=False, start_timer=False)
 
-    t = Timer(timer, loopcheck, [True])
-    t.start()
+    if start_timer:
+        t = Timer(timer, loopcheck, [True, True])
+        t.start()
 
 
 def main():
@@ -153,7 +154,7 @@ def main():
     stream_check_service = TwitchStreamCheckService(client_id, client_secret, game_list)
 
     print("Checking for", user, "every", timer, "seconds. Record with", quality, "quality.")
-    loopcheck(True)
+    loopcheck(do_delete=True, start_timer=True)
 
 
 if __name__ == "__main__":
